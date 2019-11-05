@@ -1,0 +1,271 @@
+---
+title: "Group Assignment 3 - Creative Gaming"
+author:
+- Section 51
+- Gaurav Agrawal, Ajitesh Abhishek, Tarun Joshi
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+```{r, include=FALSE}
+### Determine notebook defaults:
+knitr::opts_chunk$set(echo=TRUE,      # Print all the code in all the chunks
+                      warning=FALSE,  # Don't print warning statements
+                      message=FALSE,  # Don't print other R output messages
+                      comment=NA)     # Helps produce prettier output
+```
+
+```{r, echo=FALSE, message = FALSE, warning = FALSE}
+### Load packages:
+library(gmodels)
+library(modelr)
+library(janitor)
+library(haven)
+library(readxl)
+library(knitr)
+library(psych)
+library(statar)
+library(tidyverse)
+library(mktg482)
+library(sjPlot)
+library(skimr) 
+library(nnet)
+library(tictoc)
+library(effects)
+```
+
+### Read in the data:
+```{r}
+# use load("filename.Rdata") for .Rdata files
+data = load("creative_gaming_propensity.Rdata")
+```
+
+### Part 1 - Question 1
+```{r}
+cg_organic %>%
+  summarise (organic_probability = mean(converted))
+
+```
+
+### Part 1 - Question 2
+```{r}
+skim(cg_organic)
+```
+
+
+### Part 2 - Question 1
+```{r}
+cg_organic_train <- cg_organic[sample_train_org,] 
+cg_organic_test <- cg_organic[-sample_train_org,]
+
+train_test_split = nrow(cg_organic_train)/nrow(cg_organic)
+
+train_test_split
+```
+The training test split is 70:30
+
+
+### Part 2 - Question 2: Base Work
+
+```{r}
+logit1 <- glm(converted ~ DaysUser + GameLevel + NumAdsClicked + NumFriendRequestIgnored + NumFriends + NumFriendsofFriends + NumGameDays + NumGameDaysOnline + NumInGameMessagesSent + TimesCaptain + TimesKilled + TimesLostSpaceship + TimesNavigator, family = binomial(logit)
+, data=cg_organic_train)
+summary(logit1)
+
+```
+
+### Part 2 - Question 2a. 
+```{r}
+varimp.logistic(logit1) %>% plotimp.logistic()
+```
+The three most important features are NumFriends, TimesLostSpaceship, GameLevel
+
+### Part 2 - Question 2b. 
+```{r}
+plot_model(logit1, type = "eff", terms = c("NumFriends"))
+```
+As number of friends goes from 0 to 12, the probability of conversion reaches as high as 80%. This is a high and significant correlation. 
+
+```{r}
+plot_model(logit1, type = "eff", terms = c("TimesLostSpaceship"))
+```
+As number of times of spaceship loss goes up, there is negligible change in probability of conversion i.e. it drops from 4.5% to 0
+
+```{r}
+plot_model(logit1, type = "eff", terms = c("GameLevel"))
+```
+As the lebel of game achieved by user goes up from 1 to 10, the probability of conversion rises marginally from 2% to ~6%. Secondly, the confidence interval is high for all game levels which means it is difficult to accurately predict conversion for particular game levels. 
+
+
+### Part 2 - Question 2c. 
+```{r}
+predictions_logit1_test <- predict(logit1, newdata = cg_organic_test, type = "response")
+
+gainsplot(predictions_logit1_test, label.var = cg_organic_test$converted)
+
+```
+
+Area under curve for gains plot is 0.802 which is a good prediction
+
+### Part 2 - Question 2d.
+
+Choosing 30,000 customers from 200,000 means this is 30,000/200,000 = 15% of total customers model we are targeting. Now, for 15% customers, based on gains plot we will have 60% buyers. 
+
+```{r}
+cust_targeted = 30000
+cust_converted = 60/100 * 5.75/100 * 200000
+
+profit = cust_converted*14.99 - cust_targeted*1.5
+profit
+```
+The profit from model-selected 30,000 customers would be $58,431
+
+### Part 3 - Question 1.
+
+```{r}
+
+group1_probability <- cg_organic_control %>%
+  summarise (group1_probability = mean(converted))
+
+```
+
+
+```{r}
+
+profit <- group1_probability*30000*14.99
+profit
+
+```
+The total profit for Group 1 is $25,573
+
+### Part 3 - Question 2.
+
+```{r}
+cg_ad_random <- cg_ad_treatment[sample_random_30000,]
+
+group2_probability <- cg_ad_random %>%
+  summarise (group2_probability = mean(converted))
+group2_probability
+
+```
+
+```{r}
+
+profit2 <- group2_probability*30000*14.99 - 30000*1.5
+profit2
+
+```
+The total profit for Group 2 is $13,656 which is lower than Group 1. This could be because of non selective targeting as well as higher advertisement cost as compared to group 1
+
+### Part 3 - Question 3.
+
+```{r}
+cg_ad_scoring <- cg_ad_treatment[-sample_random_30000,]
+
+predictions_logit1_scoring <- predict(logit1, newdata = cg_ad_scoring, type = "response")
+
+cg_ad_scoring <- cg_ad_scoring %>%
+  mutate(score_logit = predictions_logit1_scoring)
+
+cg_ad_scoring_sorted <- cg_ad_scoring
+
+cg_ad_scoring_sorted <- cg_ad_scoring_sorted %>% arrange(desc(score_logit))
+```
+
+## Selecting 30,000 users having top probability of conversion and finding their mean probability of purchase
+
+```{r}
+
+cg_ad_scoring_sorted_group3 <- cg_ad_scoring_sorted[1:30000,]
+
+group3_probability <- cg_ad_scoring_sorted_group3 %>%
+  summarise (group3_probability = mean(converted))
+group3_probability
+
+```
+
+```{r}
+profit3 <- group3_probability*30000*14.99 - 30000*1.5
+profit3
+```
+
+The total profit for Group 3 is $49,407. 
+
+### Part 3 - Question 4
+Based on targeting all 30,000 customers using the model, although we are targeting the top 30,000 customers but their overall response rate is still low and we are paying for advertisements to all top 30K customers. We should only be targeting the ones which are having better than breakeven response rate. In this case, these would be less than 30,000 customers. 
+
+### Part 3 - Question 5
+
+Group 1 helps reevaluate the conversion rate when some users are receiving the adverstisement. It might happen that the control group is affected by advertisements as control group users could be friends with ad treatment users. However, by doing a double check - we are making an accurate assessment of control group or organic conversion. 
+
+### Part 3 - Question 6
+This is because in the prediction model, we have used the organic conversion data where as the actual calculation is based on the ad_treatment data. We need to include the experimental data to train the model so that it gives accurate results. 
+
+### Part 4 - Question 1
+
+```{r}
+logit2 <- glm(converted ~ DaysUser + GameLevel + NumAdsClicked + NumFriendRequestIgnored + NumFriends + NumFriendsofFriends + NumGameDays + NumGameDaysOnline + NumInGameMessagesSent + TimesCaptain + TimesKilled + TimesLostSpaceship + TimesNavigator, family = binomial(logit)
+, data=cg_ad_random)
+summary(logit2)
+
+```
+### Part 4 - Question 1
+
+```{r}
+logit2 <- glm(converted ~ DaysUser + GameLevel + NumAdsClicked + NumFriendRequestIgnored + NumFriends + NumFriendsofFriends + NumGameDays + NumGameDaysOnline + NumInGameMessagesSent + TimesCaptain + TimesKilled + TimesLostSpaceship + TimesNavigator, family = binomial(logit)
+, data=cg_ad_random)
+summary(logit2)
+```
+
+### Part 4 - Question 2
+
+
+```{r}
+predictions_logit2_scoring <- predict(logit2, newdata = cg_ad_scoring, type = "response")
+
+cg_ad_scoring <- cg_ad_scoring %>%
+  mutate(score_logit2 = predictions_logit2_scoring)
+
+gainsplot(predictions_logit1_scoring, predictions_logit2_scoring, label.var = cg_ad_scoring$converted)
+
+```
+The trained model which uses the experimental data is a better model as the AUC is higher. 
+
+### Part 4 - Question 3
+
+```{r}
+
+cg_ad_scoring_sorted_new <- cg_ad_scoring
+
+cg_ad_scoring_sorted_new <- cg_ad_scoring_sorted_new %>% arrange(desc(score_logit2))
+```
+
+```{r}
+
+cg_ad_scoring_sorted_new_target30k <- cg_ad_scoring_sorted_new[1:30000,]
+
+trained_probability <- cg_ad_scoring_sorted_new_target30k %>%
+  summarise (trained_probability = mean(converted))
+trained_probability
+
+```
+```{r}
+profit_actual <- trained_probability*30000*14.99 - 30000*1.5
+profit_actual
+
+profit_improvement <- profit_actual - profit3
+profit_improvement
+```
+The profit improves by $54,024
+
+### Part 4 - Question 4
+
+```{r}
+
+varimp.logistic(logit2) %>% plotimp.logistic()
+
+```
+The two models differ because we can see that the logit2 model i.e. the trained model has NumAdsClicked as the super important feature where as this variable was not in most important features in the previous model. Since the adverstisements play a crucial role in changing user behavior, we can find such difference between the results of two models. 
