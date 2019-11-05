@@ -18,6 +18,18 @@ knitr::opts_chunk$set(echo=TRUE,      # Print all the code in all the chunks
                       comment=NA)     # Helps produce prettier output
 ```
 
+```{r pkginit, echo=FALSE, message=FALSE}
+# Install packages needed for class
+options(install.packages.check.source = "no")
+pkgs = c('rmarkdown', 'gmodels', 'modelr', 'janitor', 'haven', 'readxl', 'knitr', 'psych', 'statar', 'tidyverse', 'devtools', 'lfe', 'Matrix')
+pkgs.installed = installed.packages()[, 'Package']
+needtoinstall = setdiff(pkgs, pkgs.installed)
+if (length(needtoinstall) > 0)
+    install.packages(needtoinstall)
+devtools::install_github("fzettelmeyer/mktg482", upgrade = "never", force = TRUE)
+
+```
+
 ```{r, echo=FALSE, message = FALSE, warning = FALSE}
 ### Load packages:
 library(gmodels)
@@ -37,6 +49,7 @@ library(tictoc)
 library(effects)
 library(splitstackshape)
 library(tools4uplift)
+library(ranger)
 ```
 
 ### Read in the data:
@@ -70,7 +83,7 @@ The training test split is 70:30
 
 ### Part 2 
 ```{r}
-fm <- formula(converted ~.)
+fm <- formula(converted ~. -ad)
 logit.treat <- glm(fm, data=(expdata_stacked.train%>%filter(ad==1)), family = "binomial")
 logit.control <- glm(fm, data=(expdata_stacked.train%>%filter(ad==0)), family = "binomial")
 ```
@@ -118,46 +131,8 @@ QiniBarPlot(PerfectTable_uplift)
 ```
 As per the plots, we have maximum incremental uplift till 25% (average uplift of 20%). Overall, we see uplift in the 90% of the customers, and for the bottom 10% there is destruction of value.
 
-```{r}
-cg_ad_remain <- cg_ad_treatment[-sample_random_30000,] %>%
-  mutate(ad=1)
 
-```
-
-```{r}
-score_treat <- predict(logit.treat, newdata = cg_ad_remain, type="response")
-score_control <- predict(logit.control, newdata = cg_ad_remain, type="response")
-```
-
-```{r}
-cg_ad_remain <- cg_ad_remain%>%
-  mutate(score_treat = score_treat,
-         score_control = score_control,
-         score_uplift = score_treat-score_control)
-
-```
-
-```{r}
-cg_ad_remain%>%
-  arrange(-score_uplift)%>%
-  select(converted, ad, score_treat, score_control, score_uplift)%>%
-  head()
-
-```
-
-```{r}
-PerTable_uplift <-
-  QiniTable(
-    cg_ad_remain,
-    treat ="ad",
-    outcome="converted",
-    prediction = "score_uplift",
-    nb.group=20
-  )
-
-PerTable_uplift
-```
-
+## Question 5
 ```{r}
 PerfTable_propensity <-
 QiniTable(
@@ -178,3 +153,68 @@ QiniBarPlot(PerfTable_propensity)
 ```{r}
 QiniBarPlot2(PerfectTable_uplift, PerfTable_propensity, modelnames = c("Uplift Model", "Propensity Model"))
 ```
+
+## Question 6
+
+```{r}
+
+```
+
+## Part 2: Question 1
+```{r}
+fm <- formula(converted ~. -ad)
+
+random.treat <- ranger(fm, data=(expdata_stacked.train %>% filter(ad==1)), probability = TRUE)
+random.control <- ranger(fm, data=(expdata_stacked.train %>% filter(ad==0)), probability = TRUE)
+
+```
+
+```{r}
+score_treat_rf <- predict(random.treat, data = expdata_stacked.test, type ="response")[[1]][,2]
+score_control_rf <- predict(random.control, data = expdata_stacked.test, type ="response")[[1]][,2]
+```
+
+```{r}
+expdata_stacked.test_rf <- expdata_stacked.test%>%
+  mutate(score_treat_rf = score_treat_rf,
+         score_control_rf = score_control_rf,
+         score_uplift_rf = score_treat-score_control)
+```
+
+```{r}
+expdata_stacked.test_rf%>%
+  arrange(-score_uplift_rf)%>%
+  select(converted, ad, score_treat_rf, score_control_rf, score_uplift_rf)%>%
+  head()
+```
+```{r}
+PerfectTable_uplift_rf <-
+  QiniTable(
+    expdata_stacked.test_rf,
+    treat ="ad",
+    outcome="converted",
+    prediction = "score_uplift_rf",
+    nb.group=20
+  )
+
+PerfectTable_uplift_rf
+
+```
+```{r}
+PerfTable_propensity_rf <-
+QiniTable(
+expdata_stacked.test_rf,
+treat = "ad",
+outcome = "converted",
+prediction = "score_treat_rf",
+nb.group = 20
+)
+PerfTable_propensity_rf
+```
+
+```{r}
+par(mfrow=c(1,2))
+QiniBarPlot2(PerfectTable_uplift_rf, PerfTable_propensity_rf, modelnames = c("Uplift Model RF", "Propensity Model RF"))
+QiniBarPlot2(PerfectTable_uplift, PerfTable_propensity, modelnames = c("Uplift Model", "Propensity Model"))
+```
+
